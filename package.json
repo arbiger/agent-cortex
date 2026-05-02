@@ -1,0 +1,19 @@
+{
+  "name": "agent-cortex",
+  "version": "1.0.0",
+  "description": "Standalone MCP server for shared memory across AI agents",
+  "main": "dist/server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node dist/server.js",
+    "build": "echo 'No build step needed - JavaScript'"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "express": "^5.2.1",
+    "pg": "^8.11.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

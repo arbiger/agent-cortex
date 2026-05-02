@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Agent-Cortex Memory Graph</title>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #1a1a2e;
+      color: #eee;
+      overflow: hidden;
+    }
+    #graph {
+      width: 100vw;
+      height: 100vh;
+    }
+    .node {
+      cursor: pointer;
+    }
+    .node circle {
+      stroke: #fff;
+      stroke-width: 1.5px;
+    }
+    .node text {
+      font-size: 10px;
+      fill: #ccc;
+      pointer-events: none;
+    }
+    .link {
+      stroke: #555;
+      stroke-opacity: 0.6;
+    }
+    .link-label {
+      font-size: 9px;
+      fill: #888;
+    }
+    #info {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      width: 320px;
+      background: #16213e;
+      border-radius: 8px;
+      padding: 16px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+      display: none;
+      max-height: 80vh;
+      overflow-y: auto;
+    }
+    #info h3 {
+      font-size: 14px;
+      color: #7fdbff;
+      margin-bottom: 8px;
+    }
+    #info .meta {
+      font-size: 11px;
+      color: #888;
+      margin-bottom: 12px;
+    }
+    #info .narrative {
+      font-size: 13px;
+      line-height: 1.5;
+      margin-bottom: 12px;
+    }
+    #info .facts {
+      font-size: 12px;
+      padding-left: 16px;
+    }
+    #info .facts li {
+      margin-bottom: 4px;
+      color: #aaa;
+    }
+    #info .agent-tag {
+      display: inline-block;
+      background: #0f3460;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      margin-bottom: 8px;
+    }
+    #info .close {
+      position: absolute;
+      top: 10px;
+      right: 12px;
+      cursor: pointer;
+      color: #666;
+      font-size: 18px;
+    }
+    #search {
+      position: fixed;
+      top: 20px;
+      left: 20px;
+      background: #16213e;
+      padding: 12px;
+      border-radius: 8px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+    }
+    #search input {
+      background: #1a1a2e;
+      border: 1px solid #333;
+      color: #fff;
+      padding: 8px 12px;
+      border-radius: 4px;
+      width: 200px;
+      font-size: 13px;
+    }
+    #search input:focus {
+      outline: none;
+      border-color: #7fdbff;
+    }
+    #search button {
+      background: #0f3460;
+      border: none;
+      color: #fff;
+      padding: 8px 12px;
+      border-radius: 4px;
+      cursor: pointer;
+      margin-left: 8px;
+    }
+    #stats {
+      position: fixed;
+      bottom: 20px;
+      left: 20px;
+      background: #16213e;
+      padding: 12px 16px;
+      border-radius: 8px;
+      font-size: 12px;
+      color: #888;
+    }
+    .legend {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      background: #16213e;
+      padding: 12px;
+      border-radius: 8px;
+      font-size: 11px;
+    }
+    .legend-item {
+      display: flex;
+      align-items: center;
+      margin-bottom: 4px;
+    }
+    .legend-color {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      margin-right: 8px;
+    }
+  </style>
+</head>
+<body>
+  <div id="search">
+    <input type="text" id="searchInput" placeholder="Search memories...">
+    <button onclick="searchMemories()">Search</button>
+  </div>
+
+  <div id="info">
+    <span class="close" onclick="closeInfo()">&times;</span>
+    <div class="agent-tag" id="infoAgent"></div>
+    <h3 id="infoContent"></h3>
+    <div class="meta" id="infoMeta"></div>
+    <div class="narrative" id="infoNarrative"></div>
+    <ul class="facts" id="infoFacts"></ul>
+  </div>
+
+  <div id="stats"></div>
+
+  <div class="legend">
+    <div class="legend-item"><div class="legend-color" style="background:#7fdbff"></div>opencode</div>
+    <div class="legend-item"><div class="legend-color" style="background:#ffdc00"></div>hermes</div>
+    <div class="legend-item"><div class="legend-color" style="background:#ff6b6b"></div>openclaw</div>
+    <div class="legend-item"><div class="legend-color" style="background:#01ff70"></div>george</div>
+  </div>
+
+  <svg id="graph"></svg>
+
+  <script>
+    const agentColors = {
+      opencode: '#7fdbff',
+      hermes: '#ffdc00',
+      openclaw: '#ff6b6b',
+      george: '#01ff70',
+      default: '#aaa'
+    };
+
+    const relationColors = {
+      caused: '#ff6b6b',
+      led_to: '#ff9f43',
+      contradicts: '#ff4757',
+      references: '#7fdbff',
+      supports: '#2ed573',
+      replaces: '#a55eea'
+    };
+
+    let svg, g, simulation, nodes, links;
+    let graphData = { nodes: [], edges: [] };
+
+    async function loadGraph() {
+      const resp = await fetch('/api/graph');
+      graphData = await resp.json();
+      renderGraph();
+      document.getElementById('stats').textContent =
+        `${graphData.nodes.length} memories | ${graphData.edges.length} links`;
+    }
+
+    function renderGraph() {
+      svg = d3.select('#graph');
+      const width = window.innerWidth;
+      const height = window.innerHeight;
+
+      svg.attr('width', width).attr('height', height);
+
+      g = svg.append('g');
+
+      svg.call(d3.zoom()
+        .scaleExtent([0.1, 4])
+        .on('zoom', (event) => g.attr('transform', event.transform)));
+
+      simulation = d3.forceSimulation()
+        .force('link', d3.forceLink().id(d => d.id).distance(120))
+        .force('charge', d3.forceManyBody().strength(-300))
+        .force('center', d3.forceCenter(width / 2, height / 2))
+        .force('collision', d3.forceCollide().radius(50));
+
+      links = g.append('g')
+        .selectAll('.link')
+        .data(graphData.edges)
+        .enter().append('line')
+        .attr('class', 'link')
+        .attr('stroke', d => relationColors[d.relation] || '#555')
+        .attr('stroke-width', d => (d.weight || 0.5) * 2);
+
+      links.append('title')
+        .text(d => d.relation);
+
+      nodes = g.append('g')
+        .selectAll('.node')
+        .data(graphData.nodes)
+        .enter().append('g')
+        .attr('class', 'node')
+        .call(d3.drag()
+          .on('start', dragstarted)
+          .on('drag', dragged)
+          .on('end', dragended))
+        .on('click', (event, d) => showInfo(d));
+
+      nodes.append('circle')
+        .attr('r', 12)
+        .attr('fill', d => agentColors[d.agent] || agentColors.default);
+
+      nodes.append('text')
+        .attr('dx', 16)
+        .attr('dy', 4)
+        .text(d => d.label.slice(0, 30));
+
+      simulation
+        .nodes(graphData.nodes)
+        .on('tick', ticked);
+
+      simulation.force('link')
+        .links(graphData.edges);
+
+      function ticked() {
+        links
+          .attr('x1', d => d.source.x)
+          .attr('y1', d => d.source.y)
+          .attr('x2', d => d.target.x)
+          .attr('y2', d => d.target.y);
+
+        nodes
+          .attr('transform', d => `translate(${d.x},${d.y})`);
+      }
+    }
+
+    function showInfo(d) {
+      const info = document.getElementById('info');
+      info.style.display = 'block';
+      document.getElementById('infoAgent').textContent = d.agent;
+      document.getElementById('infoContent').textContent = d.label;
+      document.getElementById('infoMeta').textContent =
+        `${d.date ? new Date(d.date).toLocaleString() : 'Unknown date'}`;
+      document.getElementById('infoNarrative').textContent = d.narrative || 'No narrative yet';
+
+      const factsEl = document.getElementById('infoFacts');
+      factsEl.innerHTML = '';
+      if (d.facts && d.facts.length) {
+        d.facts.forEach(f => {
+          const li = document.createElement('li');
+          li.textContent = f;
+          factsEl.appendChild(li);
+        });
+      } else {
+        factsEl.innerHTML = '<li>No facts extracted yet</li>';
+      }
+    }
+
+    function closeInfo() {
+      document.getElementById('info').style.display = 'none';
+    }
+
+    function dragstarted(event, d) {
+      if (!event.active) simulation.alphaTarget(0.3).restart();
+      d.fx = d.x;
+      d.fy = d.y;
+    }
+
+    function dragged(event, d) {
+      d.fx = event.x;
+      d.fy = event.y;
+    }
+
+    function dragended(event, d) {
+      if (!event.active) simulation.alphaTarget(0);
+      d.fx = null;
+      d.fy = null;
+    }
+
+    async function searchMemories() {
+      const q = document.getElementById('searchInput').value;
+      if (!q) return;
+
+      const resp = await fetch(`/api/search?q=${encodeURIComponent(q)}`);
+      const results = await resp.json();
+
+      if (results.length === 0) {
+        alert('No memories found');
+        return;
+      }
+
+      const first = results[0];
+      const node = graphData.nodes.find(n => n.id === first.id);
+      if (node) {
+        showInfo(node);
+        const nodeEl = nodes.filter(d => d.id === first.id);
+        if (nodeEl.size()) {
+          const [x, y] = [node.x, node.y];
+          svg.transition().duration(750).call(
+            d3.zoom().transform,
+            d3.zoomIdentity.translate(window.innerWidth/2 - x, window.innerHeight/2 - y).scale(1.5)
+          );
+        }
+      }
+    }
+
+    document.getElementById('searchInput').addEventListener('keypress', e => {
+      if (e.key === 'Enter') searchMemories();
+    });
+
+    window.addEventListener('resize', () => {
+      svg.attr('width', window.innerWidth).attr('height', window.innerHeight);
+      simulation.force('center', d3.forceCenter(window.innerWidth / 2, window.innerHeight / 2));
+      simulation.alpha(0.3).restart();
+    });
+
+    loadGraph();
+  </script>
+</body>
+</html>
