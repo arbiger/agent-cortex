@@ -1,6 +1,6 @@
 # Agent Cortex — Standalone MCP Server
 
-A standalone MCP server for shared memory across AI agents.
+A MCP server for shared memory across AI agents.
 
 ## Quick Start
 
