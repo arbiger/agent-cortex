@@ -27,7 +27,7 @@ node dist/server.js
 | `CORTEX_PG_CONN` | PostgreSQL connection string | `postgresql://george@localhost:5432/agent_cortex` |
 | `CORTEX_VAULT_ROOT` | Path to memory vault folder | `~/Documents/Georges/06 🧠 Memory` |
 | `CORTEX_LLM_URL` | LLM API endpoint | `http://localhost:8000` |
-| `CORTEX_LLM_MODEL` | LLM model name | `Qwen3.6-35B-A3B-TurboQuant-MLX-4bit` |
+| `CORTEX_LLM_MODEL` | LLM model name | `Qwen3.6-35B-A3B-UD-MLX-3bit` |
 | `CORTEX_EMBED_URL` | Embedding API endpoint | `http://localhost:8000/v1/embeddings` |
 | `CORTEX_EMBED_MODEL` | Embedding model name | `bge-m3-mlx-fp16` |
 
