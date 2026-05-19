@@ -5,6 +5,7 @@ import pg from 'pg';
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { isContradiction, checkContradictions as srcCheckContradictions } from '../src/contradiction.js';
 
 const { Pool } = pg;
 
@@ -123,8 +124,9 @@ async function getPendingEmbeddings() {
   return result.rows;
 }
 
-async function retryPendingEmbeddings() {
+async function retryPendingEmbeddings(delayMs = 100) {
   const pending = await getPendingEmbeddings();
+  if (pending.length === 0) return { attempted: 0, embedded: 0 };
   let embedded = 0;
   for (const mem of pending) {
     try {
@@ -133,6 +135,9 @@ async function retryPendingEmbeddings() {
       embedded++;
     } catch (err) {
       console.error(`Failed to embed ${mem.id}:`, err.message);
+    }
+    if (delayMs > 0 && mem !== pending[pending.length - 1]) {
+      await new Promise(r => setTimeout(r, delayMs));
     }
   }
   return { attempted: pending.length, embedded };
@@ -297,31 +302,17 @@ async function getMemoryById(memoryId) {
   return result.rows[0] || null;
 }
 
-
-
-
-
 async function checkContradictions(memoryId, newFacts) {
+  if (!srcCheckContradictions) return [];
   const memory = await getMemoryById(memoryId);
   if (!memory || !memory.facts) return [];
   const existingFacts = typeof memory.facts === 'string' ? JSON.parse(memory.facts) : memory.facts;
-  const contradictions = [];
-  for (const existing of existingFacts) {
-    for (const newFact of newFacts) {
-      if (existing.toLowerCase().includes('not') !== newFact.toLowerCase().includes('not') ||
-          existing.includes('no ') !== newFact.includes('no ')) {
-        if (Math.random() < 0.3) {
-          contradictions.push({
-            existing,
-            new: newFact,
-            type: 'potential_conflict'
-          });
-        }
-      }
-    }
-  }
-  return contradictions;
+  return srcCheckContradictions(existingFacts, newFacts, process.env);
 }
+
+
+
+
 
 async function writePeopleFile(name, content) {
   await ensureVaultDir();
@@ -560,6 +551,25 @@ server.setRequestHandler(ListToolsRequestSchema, () => {
             content: { type: 'string', description: 'Markdown content to write' },
           },
           required: ['name', 'content'],
+        },
+      },
+      {
+        name: 'memory_health',
+        description: 'Report system health: DB connection, pending embeddings, unprocessed memories, orphan links, vault status',
+        inputSchema: {
+          type: 'object',
+          properties: {},
+        },
+      },
+      {
+        name: 'memory_repair',
+        description: 'Retry failed embeddings and remove orphan causal links. Always reports counts. Only performs actions when flags are true.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            retry_embeddings: { type: 'boolean', default: false, description: 'Retry pending embeddings' },
+            fix_orphans: { type: 'boolean', default: false, description: 'Delete orphan causal links' },
+          },
         },
       },
     ],
@@ -847,6 +857,154 @@ Return valid JSON only.`,
       const filepath = await writePeopleFile(personName, content);
 
       return { content: [{ type: 'text', text: `People file updated: ${filepath}` }] };
+    }
+
+    if (name === 'memory_health') {
+      const checks = [];
+      let dbOk = false;
+      let vaultOk = false;
+
+      try {
+        await pool.query(`SELECT 1`);
+        dbOk = true;
+        checks.push({ check: 'db_connection', status: 'ok', detail: 'Query SELECT 1 succeeded' });
+      } catch (err) {
+        checks.push({ check: 'db_connection', status: 'error', detail: err.message });
+      }
+
+      try {
+        const pendingResult = await pool.query(
+          `SELECT COUNT(*) as count FROM memories m
+           LEFT JOIN memory_embeddings e ON m.id = e.memory_id
+           WHERE m.embedding_pending = TRUE AND e.id IS NULL AND m.is_deleted = FALSE`
+        );
+        checks.push({ check: 'pending_embeddings', status: 'ok', detail: `${pendingResult.rows[0].count} pending` });
+      } catch (err) {
+        checks.push({ check: 'pending_embeddings', status: 'error', detail: err.message });
+      }
+
+      try {
+        const unprocessedResult = await pool.query(
+          `SELECT COUNT(*) as count FROM memories WHERE enriched = FALSE AND is_deleted = FALSE`
+        );
+        checks.push({ check: 'unprocessed_memories', status: 'ok', detail: `${unprocessedResult.rows[0].count} unprocessed` });
+      } catch (err) {
+        checks.push({ check: 'unprocessed_memories', status: 'error', detail: err.message });
+      }
+
+      try {
+        const orphanResult = await pool.query(
+          `SELECT COUNT(*) as count FROM causal_links cl
+           WHERE NOT EXISTS (SELECT 1 FROM memories WHERE id = cl.memory_id)
+              OR NOT EXISTS (SELECT 1 FROM memories WHERE id = cl.target_id)`
+        );
+        checks.push({ check: 'orphan_links', status: 'ok', detail: `${orphanResult.rows[0].count} orphans` });
+      } catch (err) {
+        checks.push({ check: 'orphan_links', status: 'error', detail: err.message });
+      }
+
+      try {
+        const [memResult, embResult, linkResult] = await Promise.all([
+          pool.query(`SELECT COUNT(*) as count FROM memories WHERE is_deleted = FALSE`),
+          pool.query(`SELECT COUNT(*) as count FROM memory_embeddings`),
+          pool.query(`SELECT COUNT(*) as count FROM causal_links`),
+        ]);
+        checks.push({
+          check: 'db_stats',
+          status: 'ok',
+          detail: `memories:${memResult.rows[0].count} embeddings:${embResult.rows[0].count} links:${linkResult.rows[0].count}`,
+        });
+      } catch (err) {
+        checks.push({ check: 'db_stats', status: 'error', detail: err.message });
+      }
+
+      try {
+        await fs.access(VAULT_ROOT);
+        vaultOk = true;
+        checks.push({ check: 'vault_readable', status: 'ok', detail: VAULT_ROOT });
+      } catch (err) {
+        checks.push({ check: 'vault_readable', status: 'error', detail: err.message });
+      }
+
+      const allOk = dbOk && vaultOk && checks.every(c => c.status === 'ok');
+      const health = {
+        status: allOk ? 'ok' : 'degraded',
+        timestamp: new Date().toISOString(),
+        checks,
+      };
+
+      return { content: [{ type: 'text', text: JSON.stringify(health, null, 2) }] };
+    }
+
+    if (name === 'memory_repair') {
+      const { retry_embeddings = false, fix_orphans = false } = args;
+      const errors = [];
+
+      let pendingCount = 0;
+      let orphanCount = 0;
+      let embedded = 0;
+      let deleted = 0;
+
+      try {
+        const pendingResult = await pool.query(
+          `SELECT COUNT(*) as count FROM memories m
+           LEFT JOIN memory_embeddings e ON m.id = e.memory_id
+           WHERE m.embedding_pending = TRUE AND e.id IS NULL AND m.is_deleted = FALSE`
+        );
+        pendingCount = parseInt(pendingResult.rows[0].count, 10);
+      } catch (err) {
+        errors.push(`pending query: ${err.message}`);
+      }
+
+      try {
+        const orphanResult = await pool.query(
+          `SELECT COUNT(*) as count FROM causal_links cl
+           WHERE NOT EXISTS (SELECT 1 FROM memories WHERE id = cl.memory_id)
+              OR NOT EXISTS (SELECT 1 FROM memories WHERE id = cl.target_id)`
+        );
+        orphanCount = parseInt(orphanResult.rows[0].count, 10);
+      } catch (err) {
+        errors.push(`orphan query: ${err.message}`);
+      }
+
+      if (fix_orphans && orphanCount > 0) {
+        try {
+          const deleteResult = await pool.query(
+            `DELETE FROM causal_links cl
+             WHERE NOT EXISTS (SELECT 1 FROM memories WHERE id = cl.memory_id)
+                OR NOT EXISTS (SELECT 1 FROM memories WHERE id = cl.target_id)`
+          );
+          deleted = deleteResult.rowCount || 0;
+        } catch (err) {
+          errors.push(`orphan delete: ${err.message}`);
+        }
+      }
+
+      if (retry_embeddings && pendingCount > 0) {
+        try {
+          const result = await retryPendingEmbeddings();
+          embedded = result.embedded;
+        } catch (err) {
+          errors.push(`retry embeddings: ${err.message}`);
+        }
+      }
+
+      const repairSummary = {
+        timestamp: new Date().toISOString(),
+        pending_embeddings: pendingCount,
+        orphan_links: orphanCount,
+        actions: {
+          retry_embeddings,
+          fix_orphans,
+        },
+        results: {
+          embedded: retry_embeddings ? embedded : null,
+          deleted: fix_orphans ? deleted : null,
+        },
+        errors,
+      };
+
+      return { content: [{ type: 'text', text: JSON.stringify(repairSummary, null, 2) }] };
     }
 
     throw new Error(`Unknown tool: ${name}`);
