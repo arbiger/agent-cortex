@@ -128,12 +128,17 @@ describe('repair script validation', () => {
         assert.ok(!hasPipe || content.includes('process.exit'), 'Script should not use unguarded pipe to node (use node wrapper with error checking)');
     });
 
-    test('repair-pending.sh --retry-embeddings has explicit exit on failure', () => {
+    test('repair-pending.sh --retry-embeddings delegates to helper with exit on failure', () => {
         const scriptPath = new URL('../scripts/repair-pending.sh', import.meta.url).pathname;
         const content = readFileSync(scriptPath, 'utf8');
         const retrySection = content.split('if [ "$RETRY_EMBEDDINGS"')[1] || '';
-        assert.ok(retrySection.includes('process.exit'), 'Retry block should call process.exit on failure');
-        assert.ok(retrySection.includes('MCP error') || retrySection.includes('No response'), 'Retry block should detect MCP errors');
+        assert.ok(retrySection.includes('retry-embeddings.mjs') || retrySection.includes('process.exit'),
+            'Retry block should call retry-embeddings.mjs helper (which has process.exit) or process.exit directly');
+        const mjsPath = new URL('../scripts/retry-embeddings.mjs', import.meta.url).pathname;
+        const mjsContent = readFileSync(mjsPath, 'utf8');
+        assert.ok(mjsContent.includes('process.exit'), 'Helper script must have explicit exit on failure');
+        assert.ok(mjsContent.includes('MCP error') || mjsContent.includes('No response') || mjsContent.includes('timed out'),
+            'Helper script should detect MCP errors');
     });
 
     test('repair-pending.sh --retry-embeddings avoids GNU timeout dependency', () => {

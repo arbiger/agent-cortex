@@ -21,6 +21,17 @@ const pool = new Pool({
     await pool.query(`ALTER TABLE memories ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT FALSE`);
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_memories_is_deleted ON memories(is_deleted)`);
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_causal_links_target ON causal_links(target_id)`);
+    await pool.query(`
+      ALTER TABLE memory_embeddings ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()
+    `);
+    await pool.query(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'memory_embeddings_memory_id_key') THEN
+          ALTER TABLE memory_embeddings ADD CONSTRAINT memory_embeddings_memory_id_key UNIQUE (memory_id);
+        END IF;
+      END $$
+    `);
   } catch (err) {
     console.error('Migration warning:', err.message);
   }
@@ -94,7 +105,7 @@ async function insertEmbedding(memoryId, embedding) {
   const vec = `[${embedding.join(',')}]`;
   await pool.query(
     `INSERT INTO memory_embeddings (memory_id, embedding) VALUES ($1, $2::vector)
-     ON CONFLICT (memory_id) DO NOTHING`,
+     ON CONFLICT (memory_id) DO UPDATE SET embedding = EXCLUDED.embedding, updated_at = NOW()`,
     [memoryId, vec]
   );
   await pool.query(
@@ -126,21 +137,24 @@ async function getPendingEmbeddings() {
 
 async function retryPendingEmbeddings(delayMs = 100) {
   const pending = await getPendingEmbeddings();
-  if (pending.length === 0) return { attempted: 0, embedded: 0 };
+  if (pending.length === 0) return { attempted: 0, embedded: 0, errors: [] };
   let embedded = 0;
+  const errors = [];
   for (const mem of pending) {
     try {
       const embedding = await getEmbedding(mem.content);
       await insertEmbedding(mem.id, embedding);
       embedded++;
     } catch (err) {
+      const msg = `memory ${mem.id}: ${err.message}`;
+      errors.push(msg);
       console.error(`Failed to embed ${mem.id}:`, err.message);
     }
     if (delayMs > 0 && mem !== pending[pending.length - 1]) {
       await new Promise(r => setTimeout(r, delayMs));
     }
   }
-  return { attempted: pending.length, embedded };
+  return { attempted: pending.length, embedded, errors };
 }
 
 async function semanticSearch(query, agentTag, limit = 10) {
@@ -739,7 +753,7 @@ Return valid JSON only.`,
         }
       }
 
-      return { content: [{ type: 'text', text: `Embeddings: ${embedResult.embedded}/${embedResult.attempted} retry ok. Enriched: ${enriched}/${memories.length}. Contradictions: ${contradictions}. Auto-links created: ${linksCreated}` }] };
+      return { content: [{ type: 'text', text: `Embeddings: ${embedResult.embedded}/${embedResult.attempted} retry ok${embedResult.errors && embedResult.errors.length > 0 ? ', errors: ' + embedResult.errors.length : ''}. Enriched: ${enriched}/${memories.length}. Contradictions: ${contradictions}. Auto-links created: ${linksCreated}` }] };
     }
 
     if (name === 'memory_link') {
@@ -944,6 +958,7 @@ Return valid JSON only.`,
       let orphanCount = 0;
       let embedded = 0;
       let deleted = 0;
+      let embedding_errors = [];
 
       try {
         const pendingResult = await pool.query(
@@ -980,10 +995,33 @@ Return valid JSON only.`,
         }
       }
 
+      let cleared_stale_pending = null;
       if (retry_embeddings && pendingCount > 0) {
+        try {
+          const staleResult = await pool.query(
+            `SELECT COUNT(*) as count FROM memories m
+             JOIN memory_embeddings e ON m.id = e.memory_id
+             WHERE m.embedding_pending = TRUE AND m.is_deleted = FALSE`
+          );
+          cleared_stale_pending = parseInt(staleResult.rows[0].count, 10);
+          if (cleared_stale_pending > 0) {
+            await pool.query(
+              `UPDATE memories SET embedding_pending = FALSE
+               WHERE id IN (
+                 SELECT m.id FROM memories m
+                 JOIN memory_embeddings e ON m.id = e.memory_id
+                 WHERE m.embedding_pending = TRUE AND m.is_deleted = FALSE
+               )`
+            );
+          }
+        } catch (err) {
+          errors.push(`clear stale pending: ${err.message}`);
+        }
+
         try {
           const result = await retryPendingEmbeddings();
           embedded = result.embedded;
+          embedding_errors = result.errors || [];
         } catch (err) {
           errors.push(`retry embeddings: ${err.message}`);
         }
@@ -1000,6 +1038,8 @@ Return valid JSON only.`,
         results: {
           embedded: retry_embeddings ? embedded : null,
           deleted: fix_orphans ? deleted : null,
+          embedding_errors: retry_embeddings ? embedding_errors : null,
+          cleared_stale_pending,
         },
         errors,
       };
