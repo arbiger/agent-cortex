@@ -80,59 +80,19 @@ if [ "$FIX_ORPHANS" = true ]; then
     echo ""
 fi
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SCRIPTS_DIR="$(dirname "$SCRIPT_DIR")"
+RETRY_SCRIPT="$SCRIPTS_DIR/scripts/retry-embeddings.mjs"
+
 if [ "$RETRY_EMBEDDINGS" = true ]; then
     echo "=== Retrying Embeddings ==="
     echo "Calling MCP memory_repair tool..."
-    node -e "
-const req = JSON.stringify({
-  jsonrpc: '2.0',
-  id: 1,
-  method: 'tools/call',
-  params: {
-    name: 'memory_repair',
-    arguments: { retry_embeddings: true }
-  }
-});
-const conn = await new Promise((res, rej) => {
-  const { spawn } = require('child_process');
-  const child = spawn('node', ['dist/server.js'], { stdio: ['pipe', 'pipe', 'pipe'] });
-  let stdout = '';
-  let stderr = '';
-  child.stdout.on('data', d => { stdout += d.toString(); });
-  child.stderr.on('data', d => { stderr += d.toString(); });
-  setTimeout(() => { child.kill(); rej(new Error('timeout')); }, 8000);
-  child.on('error', rej);
-  res({ child, stdout, stderr });
-}).catch(e => { console.error('Spawn error:', e.message); process.exit(1); });
-const { child } = conn;
-child.stdin.write(req + '\n');
-child.stdin.end();
-await new Promise(r => setTimeout(r, 2000));
-const output = conn.stdout;
-try {
-  const lines = output.trim().split('\n');
-  let foundResult = false;
-  let foundError = false;
-  for (const line of lines) {
-    if (!line.trim()) continue;
-    try {
-      const parsed = JSON.parse(line);
-      if (parsed.error) { foundError = true; console.error('MCP error:', JSON.stringify(parsed.error)); }
-      if (parsed.result) foundResult = true;
-    } catch {}
-  }
-  if (!foundResult && !foundError && !output) {
-    console.error('No response from MCP server');
-    process.exit(1);
-  }
-  if (foundError) { console.error('MCP call contained errors'); process.exit(1); }
-  console.log('MCP call completed');
-} catch (e) {
-  console.error('Parse error:', e.message);
-  console.error('Raw output:', output);
-  process.exit(1);
-}
-" 2>&1 || echo "MCP call failed or timed out"
+    if [ ! -f "$RETRY_SCRIPT" ]; then
+        echo "Error: retry-embeddings.mjs not found at $RETRY_SCRIPT" >&2
+        echo "MCP call skipped"
+    else
+        node "$RETRY_SCRIPT" "memory_repair" '{"retry_embeddings":true}' 2>&1 || echo "MCP call failed or timed out"
+    fi
     echo ""
 fi
 

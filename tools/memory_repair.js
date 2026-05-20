@@ -2,6 +2,13 @@ export const PENDING_SQL = `SELECT COUNT(*) as count FROM memories m
      LEFT JOIN memory_embeddings e ON m.id = e.memory_id
      WHERE m.embedding_pending = TRUE AND e.id IS NULL AND m.is_deleted = FALSE`;
 
+export const CLEAR_STALE_PENDING_SQL = `UPDATE memories SET embedding_pending = FALSE
+     WHERE id IN (
+       SELECT m.id FROM memories m
+       JOIN memory_embeddings e ON m.id = e.memory_id
+       WHERE m.embedding_pending = TRUE AND m.is_deleted = FALSE
+     )`;
+
 export const ORPHAN_COUNT_SQL = `SELECT COUNT(*) as count FROM causal_links cl
      WHERE NOT EXISTS (SELECT 1 FROM memories WHERE id = cl.memory_id)
         OR NOT EXISTS (SELECT 1 FROM memories WHERE id = cl.target_id)`;
@@ -11,7 +18,11 @@ export const ORPHAN_DELETE_SQL = `DELETE FROM causal_links cl
         OR NOT EXISTS (SELECT 1 FROM memories WHERE id = cl.target_id)`;
 
 export function generateRepairSummary(pendingCount, orphanCount, options = {}) {
-    const { retryEmbeddings = false, fixOrphans = false, embedded = 0, deleted = 0, errors = [] } = options;
+    const { retryEmbeddings = false, fixOrphans = false, embedded = 0, deleted = 0, embedding_errors = [], cleared_stale_pending = null, errors = [] } = options;
+    const finalErrors = [...errors];
+    if (embedding_errors.length > 0) {
+        finalErrors.push(...embedding_errors);
+    }
     return {
         timestamp: new Date().toISOString(),
         pending_embeddings: parseInt(pendingCount, 10),
@@ -23,8 +34,10 @@ export function generateRepairSummary(pendingCount, orphanCount, options = {}) {
         results: {
             embedded: retryEmbeddings ? embedded : null,
             deleted: fixOrphans ? deleted : null,
+            embedding_errors: retryEmbeddings ? embedding_errors : null,
+            cleared_stale_pending,
         },
-        errors,
+        errors: finalErrors,
     };
 }
 
