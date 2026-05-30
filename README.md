@@ -30,6 +30,7 @@ node dist/server.js
 | `CORTEX_LLM_MODEL` | LLM model name | `Qwen3.6-35B-A3B-UD-MLX-3bit` |
 | `CORTEX_EMBED_URL` | Embedding API endpoint | `http://localhost:8000/v1/embeddings` |
 | `CORTEX_EMBED_MODEL` | Embedding model name | `bge-m3-mlx-fp16` |
+| `CORTEX_TASKDB_CONN` | PostgreSQL connection string for TaskPad database | `postgresql://george@localhost:5432/taskdb` |
 
 **Note:** `CORTEX_AGENT_TAG` is set per-agent in their config, NOT here.
 
@@ -74,6 +75,37 @@ The database `agent_cortex` already has pgvector enabled. Tables:
 - `memory_read_people` — read person profile
 - `memory_causal_walk` — walk causal chain
 - `memory_enrich` — run enrichment pipeline
+- `memory_distill_people` — review-gated distillation of enriched memories into people file updates
+
+## memory_distill_people Workflow
+
+**Prerequisite:** Run `memory_enrich` first if you want the latest unprocessed memories included in distillation. The dry-run only reads memories that are already enriched (`enriched=TRUE`), so unprocessed memories are not automatically enriched during dry-run.
+
+**Dry run** (`dry_run=true`): A read-only operation — generates a diff from already-enriched source memories, returns a `proposal_id`. No writes, no enrichment, no causal link creation. A count of unprocessed memories is included in the response with a note suggesting `memory_enrich` if you want them included.
+
+**Commit** (`dry_run=false`): Requires `proposal_id` from a prior dry run. Validates the file hasn't changed since proposal, then writes the exact proposed content.
+
+### Authorization
+
+**Only a server configured as `george` can commit.** The `CORTEX_AGENT_TAG` environment variable identifies the server's identity. Non-George servers (or any agent calling the tool without `CORTEX_AGENT_TAG=george`) are restricted to **dry-run only**.
+
+| Server `CORTEX_AGENT_TAG` | dry_run=true | dry_run=false (commit) |
+|---------------------------|-------------|----------------------|
+| `george`                  | ✓ allowed   | ✓ allowed            |
+| any other value           | ✓ allowed   | ✗ Forbidden          |
+| unset                     | ✓ allowed   | ✗ Forbidden          |
+
+Example — starting the server for George (can commit):
+```bash
+CORTEX_AGENT_TAG=george node dist/server.js
+```
+
+Example — starting the server for a subordinate agent (dry-run only):
+```bash
+CORTEX_AGENT_TAG=opencode node dist/server.js
+```
+
+The `CORTEX_AGENT_TAG` is set per-agent in their start-up environment, not in a shared config file.
 
 ## Feedback Loop Prevention
 

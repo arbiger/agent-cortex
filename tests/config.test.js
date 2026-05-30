@@ -4,7 +4,7 @@ import { VALID_AGENT_TAGS, loadConfig, validateAgentTag } from '../src/config.js
 
 describe('config', () => {
   it('VALID_AGENT_TAGS contains expected values', () => {
-    assert.deepStrictEqual(VALID_AGENT_TAGS, ['opencode', 'hermes', 'openclaw', 'george']);
+    assert.deepStrictEqual(VALID_AGENT_TAGS, ['opencode', 'hermes', 'openclaw', 'george', 'agy']);
   });
 
   it('loadConfig returns defaults when no env vars set', () => {

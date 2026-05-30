@@ -1,4 +1,4 @@
-export const VALID_AGENT_TAGS = ['opencode', 'hermes', 'openclaw', 'george'];
+export const VALID_AGENT_TAGS = ['opencode', 'hermes', 'openclaw', 'george', 'agy'];
 
 export const DEFAULTS = {
   VAULT_ROOT: '/Users/george/Documents/Georges/06 🧠 Memory',
@@ -7,6 +7,7 @@ export const DEFAULTS = {
   EMBED_URL: 'http://localhost:8000/v1/embeddings',
   EMBED_MODEL: 'bge-m3-mlx-fp16',
   PG_CONN: 'postgresql://george@localhost:5432/agent_cortex',
+  TASKDB_CONN: 'postgresql://george@localhost:5432/taskdb',
 };
 
 export function loadConfig(env = process.env) {
@@ -17,6 +18,7 @@ export function loadConfig(env = process.env) {
     EMBED_URL: env.CORTEX_EMBED_URL || DEFAULTS.EMBED_URL,
     EMBED_MODEL: env.CORTEX_EMBED_MODEL || DEFAULTS.EMBED_MODEL,
     PG_CONN: env.CORTEX_PG_CONN || DEFAULTS.PG_CONN,
+    TASKDB_CONN: env.CORTEX_TASKDB_CONN || DEFAULTS.TASKDB_CONN,
     SERVER_AGENT_TAG: env.CORTEX_AGENT_TAG || null,
   };
 }
