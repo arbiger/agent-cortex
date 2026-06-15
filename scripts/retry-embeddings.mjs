@@ -5,7 +5,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const SERVER_PATH = path.resolve(__dirname, '../dist/server.js');
+const SERVER_PATH = path.resolve(__dirname, '../src/server.js');
 
 const toolName = process.argv[2];
 const argsJson = process.argv[3] || '{}';

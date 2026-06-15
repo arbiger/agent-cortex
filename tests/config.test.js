@@ -4,7 +4,7 @@ import { VALID_AGENT_TAGS, loadConfig, validateAgentTag } from '../src/config.js
 
 describe('config', () => {
   it('VALID_AGENT_TAGS contains expected values', () => {
-    assert.deepStrictEqual(VALID_AGENT_TAGS, ['opencode', 'hermes', 'openclaw', 'george', 'agy']);
+    assert.deepStrictEqual(VALID_AGENT_TAGS, ['opencode', 'hermes', 'openclaw', 'george', 'codex', 'agy']);
   });
 
   it('loadConfig returns defaults when no env vars set', () => {
@@ -81,31 +81,30 @@ describe('config', () => {
     assert.doesNotThrow(() => validateAgentTag('george', 'george'));
   });
 
-  it('env var names are present in dist/server.js', async () => {
+  it('env var names are present in runtime config modules', async () => {
     const { readFileSync } = await import('node:fs');
-    const serverSrc = readFileSync('./dist/server.js', 'utf-8');
-    assert.ok(serverSrc.includes('CORTEX_PG_CONN'), 'CORTEX_PG_CONN env var should be present');
-    assert.ok(serverSrc.includes('CORTEX_VAULT_ROOT'), 'CORTEX_VAULT_ROOT env var should be present');
-    assert.ok(serverSrc.includes('CORTEX_LLM_URL'), 'CORTEX_LLM_URL env var should be present');
-    assert.ok(serverSrc.includes('CORTEX_EMBED_URL'), 'CORTEX_EMBED_URL env var should be present');
+    const configSrc = readFileSync('./src/config.js', 'utf-8');
+    assert.ok(configSrc.includes('CORTEX_VAULT_ROOT'), 'CORTEX_VAULT_ROOT env var should be present');
+    assert.ok(configSrc.includes('CORTEX_LLM_URL'), 'CORTEX_LLM_URL env var should be present');
+    assert.ok(configSrc.includes('CORTEX_EMBED_URL'), 'CORTEX_EMBED_URL env var should be present');
   });
 
-  it('default PG connection string is present in dist/server.js', async () => {
+  it('CORTEX_SQLITE_PATH env var is referenced in db layer', async () => {
     const { readFileSync } = await import('node:fs');
-    const serverSrc = readFileSync('./dist/server.js', 'utf-8');
-    assert.ok(serverSrc.includes('postgresql://george@localhost:5432/agent_cortex'));
+    const dbSrc = readFileSync('./src/db.js', 'utf-8');
+    assert.ok(dbSrc.includes('CORTEX_SQLITE_PATH'), 'CORTEX_SQLITE_PATH env var should be in db.js');
   });
 
-  it('LLM model default is present in dist/server.js', async () => {
+  it('LLM model and embed defaults are present in config', async () => {
     const { readFileSync } = await import('node:fs');
-    const serverSrc = readFileSync('./dist/server.js', 'utf-8');
-    assert.ok(serverSrc.includes('LLM_MODEL'), 'LLM_MODEL should be defined');
-    assert.ok(serverSrc.includes('bge-m3-mlx-fp16'));
+    const configSrc = readFileSync('./src/config.js', 'utf-8');
+    assert.ok(configSrc.includes('LLM_MODEL'), 'LLM_MODEL should be defined');
+    assert.ok(configSrc.includes('bge-m3-mlx-fp16'));
   });
 
-  it('default embed URL path is present in dist/server.js', async () => {
+  it('default embed URL path is present in config', async () => {
     const { readFileSync } = await import('node:fs');
-    const serverSrc = readFileSync('./dist/server.js', 'utf-8');
-    assert.ok(serverSrc.includes('/v1/embeddings'));
+    const configSrc = readFileSync('./src/config.js', 'utf-8');
+    assert.ok(configSrc.includes('/v1/embeddings'));
   });
 });

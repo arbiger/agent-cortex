@@ -2,6 +2,8 @@
 
 A standalone MCP server for shared memory across AI agents.
 
+> **2026-06-07 migration:** Backend changed from PostgreSQL to SQLite. The `CORTEX_PG_CONN` env var is replaced by `CORTEX_SQLITE_PATH` (single file, no separate DB service). See `DEV-LOG.md` for details.
+
 ## Quick Start
 
 ```bash
@@ -9,7 +11,7 @@ A standalone MCP server for shared memory across AI agents.
 npm install
 
 # Set environment variables (or use .env file)
-export CORTEX_PG_CONN=postgresql://george@localhost:5432/agent_cortex
+export CORTEX_SQLITE_PATH=~/Documents/Georges/06\ 🧠\ Memory/agent_cortex.db
 export CORTEX_VAULT_ROOT=~/Documents/Georges/06\ 🧠\ Memory
 export CORTEX_LLM_URL=http://localhost:8000
 export CORTEX_LLM_MODEL=Qwen3.6-35B-A3B-TurboQuant-MLX-4bit
@@ -17,20 +19,20 @@ export CORTEX_EMBED_URL=http://localhost:8000/v1/embeddings
 export CORTEX_EMBED_MODEL=bge-m3-mlx-fp16
 
 # Run
-node dist/server.js
+node src/server.js
 ```
 
 ## Environment Variables
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `CORTEX_PG_CONN` | PostgreSQL connection string | `postgresql://george@localhost:5432/agent_cortex` |
+| `CORTEX_SQLITE_PATH` | SQLite database file path | `~/Documents/Georges/06 🧠 Memory/agent_cortex.db` |
 | `CORTEX_VAULT_ROOT` | Path to memory vault folder | `~/Documents/Georges/06 🧠 Memory` |
 | `CORTEX_LLM_URL` | LLM API endpoint | `http://localhost:8000` |
 | `CORTEX_LLM_MODEL` | LLM model name | `Qwen3.6-35B-A3B-UD-MLX-3bit` |
 | `CORTEX_EMBED_URL` | Embedding API endpoint | `http://localhost:8000/v1/embeddings` |
 | `CORTEX_EMBED_MODEL` | Embedding model name | `bge-m3-mlx-fp16` |
-| `CORTEX_TASKDB_CONN` | PostgreSQL connection string for TaskPad database | `postgresql://george@localhost:5432/taskdb` |
+| `CORTEX_TASKPAD_DB_PATH` | Path to agentic-taskpad SQLite database | `~/Documents/Georges/01 🎯 Projects/agentic-taskpad/agentic-taskpad.db` |
 
 **Note:** `CORTEX_AGENT_TAG` is set per-agent in their config, NOT here.
 
@@ -43,7 +45,7 @@ Each agent adds to their config:
 mcp_servers:
   agent-cortex:
     command: node
-    args: [/path/to/dist/server.js]
+    args: [/path/to/src/server.js]
     env:
       CORTEX_AGENT_TAG: hermes
 ```
@@ -54,19 +56,31 @@ mcp_servers:
   "mcpServers": {
     "agent-cortex": {
       "command": "node",
-      "args": ["/path/to/dist/server.js"]
+      "args": ["/path/to/src/server.js"]
     }
   }
 }
 ```
 
+```toml
+# Codex (~/.codex/config.toml)
+[mcp_servers.agent_cortex]
+command = "/opt/homebrew/bin/node"
+args = ["/Users/george/Georges/apps/agent-cortex/src/server.js"]
+startup_timeout_sec = 120
+
+[mcp_servers.agent_cortex.env]
+CORTEX_AGENT_TAG = "codex"
+HOME = "/Users/george"
+```
+
 ## Database Setup
 
-The database `agent_cortex` already has pgvector enabled. Tables:
+SQLite database is auto-created at `CORTEX_SQLITE_PATH` on first run. Tables:
 
-- `ac_memories` — memory documents
-- `ac_memory_embeddings` — vector embeddings
-- `ac_causal_links` — causal relationships
+- `memories` — memory documents
+- `memory_embeddings` — vector embeddings (BLOB, Float32 LE, 4096 bytes)
+- `causal_links` — causal relationships
 
 ## MCP Tools
 
@@ -97,12 +111,12 @@ The database `agent_cortex` already has pgvector enabled. Tables:
 
 Example — starting the server for George (can commit):
 ```bash
-CORTEX_AGENT_TAG=george node dist/server.js
+CORTEX_AGENT_TAG=george node src/server.js
 ```
 
 Example — starting the server for a subordinate agent (dry-run only):
 ```bash
-CORTEX_AGENT_TAG=opencode node dist/server.js
+CORTEX_AGENT_TAG=opencode node src/server.js
 ```
 
 The `CORTEX_AGENT_TAG` is set per-agent in their start-up environment, not in a shared config file.
@@ -114,5 +128,6 @@ The server validates `agent_tag` strictly. Valid tags:
 - `hermes`
 - `openclaw`
 - `george`
+- `codex`
 
 Invalid tags are rejected with an error — no silent fallback.

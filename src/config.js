@@ -1,4 +1,4 @@
-export const VALID_AGENT_TAGS = ['opencode', 'hermes', 'openclaw', 'george', 'agy'];
+export const VALID_AGENT_TAGS = ['opencode', 'hermes', 'openclaw', 'george', 'codex', 'agy'];
 
 export const DEFAULTS = {
   VAULT_ROOT: '/Users/george/Documents/Georges/06 🧠 Memory',
@@ -6,8 +6,9 @@ export const DEFAULTS = {
   LLM_MODEL: 'Qwen3.6-35B-A3B-UD-MLX-3bit',
   EMBED_URL: 'http://localhost:8000/v1/embeddings',
   EMBED_MODEL: 'bge-m3-mlx-fp16',
+  SQLITE_PATH: '/Users/george/Documents/Georges/06 🧠 Memory/agent_cortex.db',
   PG_CONN: 'postgresql://george@localhost:5432/agent_cortex',
-  TASKDB_CONN: 'postgresql://george@localhost:5432/taskdb',
+  TASKPAD_DB_PATH: '/Users/george/Documents/Georges/01 🎯 Projects/agentic-taskpad/agentic-taskpad.db',
 };
 
 export function loadConfig(env = process.env) {
@@ -17,9 +18,10 @@ export function loadConfig(env = process.env) {
     LLM_MODEL: env.CORTEX_LLM_MODEL || DEFAULTS.LLM_MODEL,
     EMBED_URL: env.CORTEX_EMBED_URL || DEFAULTS.EMBED_URL,
     EMBED_MODEL: env.CORTEX_EMBED_MODEL || DEFAULTS.EMBED_MODEL,
+    SQLITE_PATH: env.CORTEX_SQLITE_PATH || DEFAULTS.SQLITE_PATH,
     PG_CONN: env.CORTEX_PG_CONN || DEFAULTS.PG_CONN,
-    TASKDB_CONN: env.CORTEX_TASKDB_CONN || DEFAULTS.TASKDB_CONN,
     SERVER_AGENT_TAG: env.CORTEX_AGENT_TAG || null,
+    TASKPAD_DB_PATH: env.CORTEX_TASKPAD_DB_PATH || DEFAULTS.TASKPAD_DB_PATH,
   };
 }
 

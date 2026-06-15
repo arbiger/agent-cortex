@@ -148,18 +148,18 @@ describe('repair script validation', () => {
     });
 
     test('retryPendingEmbeddings function includes delay parameter', () => {
-        const serverSrc = readFileSync('./dist/server.js', 'utf8');
+        const serverSrc = readFileSync('./src/server.js', 'utf8');
         assert.ok(serverSrc.includes('retryPendingEmbeddings(delayMs'), 'retryPendingEmbeddings should accept delayMs parameter');
     });
 
     test('retryPendingEmbeddings delays between embeddings when delayMs > 0', () => {
-        const serverSrc = readFileSync('./dist/server.js', 'utf8');
+        const serverSrc = readFileSync('./src/server.js', 'utf8');
         assert.ok(serverSrc.includes('setTimeout'), 'retryPendingEmbeddings should use setTimeout for delay');
         assert.ok(serverSrc.includes('delayMs') && serverSrc.includes('new Promise'), 'Should use delayMs with Promise setTimeout');
     });
 
     test('retryPendingEmbeddings returns early with zero pending', () => {
-        const serverSrc = readFileSync('./dist/server.js', 'utf8');
+        const serverSrc = readFileSync('./src/server.js', 'utf8');
         const retryFn = serverSrc.match(/async function retryPendingEmbeddings[^}]+\}/s)?.[0] || '';
         assert.ok(retryFn.includes('pending.length === 0'), 'Should check for zero pending early return');
     });

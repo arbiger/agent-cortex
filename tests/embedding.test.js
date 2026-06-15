@@ -61,28 +61,28 @@ describe('embedding', () => {
     assert.deepStrictEqual(result, embedding);
   });
 
-  it('getEmbedding uses POST method in dist/server.js', async () => {
+  it('getEmbedding uses POST method in src/server.js', async () => {
     const { readFileSync } = await import('node:fs');
-    const serverSrc = readFileSync('./dist/server.js', 'utf-8');
+    const serverSrc = readFileSync('./src/server.js', 'utf-8');
     assert.ok(serverSrc.includes("method: 'POST'"), 'getEmbedding should use POST method');
   });
 
-  it('getEmbedding includes Content-Type application/json header in dist/server.js', async () => {
+  it('getEmbedding includes Content-Type application/json header in src/server.js', async () => {
     const { readFileSync } = await import('node:fs');
-    const serverSrc = readFileSync('./dist/server.js', 'utf-8');
+    const serverSrc = readFileSync('./src/server.js', 'utf-8');
     assert.ok(serverSrc.includes("'Content-Type': 'application/json'"));
   });
 
-  it('getEmbedding sends model and input in request body in dist/server.js', async () => {
+  it('getEmbedding sends model and input in request body in src/server.js', async () => {
     const { readFileSync } = await import('node:fs');
-    const serverSrc = readFileSync('./dist/server.js', 'utf-8');
+    const serverSrc = readFileSync('./src/server.js', 'utf-8');
     assert.ok(serverSrc.includes('model: EMBED_MODEL'));
     assert.ok(serverSrc.includes('input: text'));
   });
 
-  it('getEmbedding throws on non-ok response in dist/server.js', async () => {
+  it('getEmbedding throws on non-ok response in src/server.js', async () => {
     const { readFileSync } = await import('node:fs');
-    const serverSrc = readFileSync('./dist/server.js', 'utf-8');
+    const serverSrc = readFileSync('./src/server.js', 'utf-8');
     assert.ok(serverSrc.includes('Embedding failed'));
   });
 

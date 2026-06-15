@@ -36,7 +36,7 @@ describe('clear stale pending action', () => {
     });
 
     test('memory_repair handler clears stale pending flags before retrying embeddings', () => {
-        const serverSrc = readFileSync('./dist/server.js', 'utf8');
+        const serverSrc = readFileSync('./src/server.js', 'utf8');
         const repairHandler = serverSrc.match(/if \(name === 'memory_repair'\)[^]+?(?=if\s*\(name|$)/)?.[0] || '';
         assert.ok(
             repairHandler.includes('clearStalePending') || repairHandler.includes('cleared_stale_pending'),
@@ -45,7 +45,7 @@ describe('clear stale pending action', () => {
     });
 
     test('memory_repair handler reports stale flags cleared in results', () => {
-        const serverSrc = readFileSync('./dist/server.js', 'utf8');
+        const serverSrc = readFileSync('./src/server.js', 'utf8');
         assert.ok(
             serverSrc.includes('cleared_stale_pending') && serverSrc.includes('results'),
             `memory_repair response must include cleared_stale_pending in results`
@@ -55,7 +55,7 @@ describe('clear stale pending action', () => {
 
 describe('getPendingEmbeddings unchanged behavior', () => {
     test('getPendingEmbeddings still uses LEFT JOIN with e.id IS NULL condition', () => {
-        const serverSrc = readFileSync('./dist/server.js', 'utf8');
+        const serverSrc = readFileSync('./src/server.js', 'utf8');
         const getPendingFn = serverSrc.match(/async function getPendingEmbeddings\(\)[^]+?\n\}/)?.[0] || '';
         assert.ok(
             getPendingFn.includes('e.id IS NULL'),
@@ -64,7 +64,7 @@ describe('getPendingEmbeddings unchanged behavior', () => {
     });
 
     test('getPendingEmbeddings does not use CLEAR_STALE_PENDING_SQL', () => {
-        const serverSrc = readFileSync('./dist/server.js', 'utf8');
+        const serverSrc = readFileSync('./src/server.js', 'utf8');
         const getPendingFn = serverSrc.match(/async function getPendingEmbeddings\(\)[^]+?\n\}/)?.[0] || '';
         assert.ok(
             !getPendingFn.includes('e.id IS NOT NULL'),
