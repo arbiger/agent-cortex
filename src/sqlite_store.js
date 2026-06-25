@@ -11,6 +11,18 @@ import os from 'os';
 
 let _db = null;
 
+/**
+ * Add a column to a table if it doesn't already exist.
+ * Uses PRAGMA table_info to check, making the migration idempotent.
+ */
+function addColumnIfMissing(db, table, col, ddl) {
+  const info = db.prepare(`PRAGMA table_info(${table})`).all();
+  const exists = info.some(c => c.name === col);
+  if (!exists) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${ddl}`);
+  }
+}
+
 function applySchema(db) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS memories (
@@ -28,7 +40,15 @@ function applySchema(db) {
       embedding_pending INTEGER DEFAULT 1,
       is_deleted INTEGER DEFAULT 0
     );
+  `);
 
+  // MVP-1 memory hierarchy columns (idempotent)
+  addColumnIfMissing(db, 'memories', 'status',      'TEXT DEFAULT NULL');
+  addColumnIfMissing(db, 'memories', 'source_kind', 'TEXT DEFAULT NULL');
+  addColumnIfMissing(db, 'memories', 'period_start','TEXT DEFAULT NULL');
+  addColumnIfMissing(db, 'memories', 'period_end',  'TEXT DEFAULT NULL');
+
+  db.exec(`
     CREATE TABLE IF NOT EXISTS causal_links (
       id TEXT PRIMARY KEY,
       memory_id TEXT NOT NULL,
@@ -59,8 +79,9 @@ function applySchema(db) {
 }
 
 /**
- * Returns the singleton Database instance.
+ * Returns the singleton Database instance (better-sqlite3).
  * Creates the DB directory if it doesn't exist.
+ * Exported for synchronous transaction use in episode_builder.
  */
 export function getDb() {
   if (_db) return _db;

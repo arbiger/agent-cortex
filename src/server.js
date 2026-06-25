@@ -3,6 +3,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import fs from 'fs/promises';
 import path from 'path';
+import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'crypto';
 import { checkContradictions as srcCheckContradictions } from './contradiction.js';
 import { loadConfig, VALID_AGENT_TAGS } from './config.js';
@@ -22,6 +23,7 @@ import {
 } from './people_distill.js';
 import { parseEnrichmentPayload } from './llm_json.js';
 import { handleQueryUnified } from './query_unified.js';
+import { writeEvent } from './event_ingest.js';
 
 const config = loadConfig();
 const SERVER_AGENT_TAG = config.SERVER_AGENT_TAG;
@@ -37,12 +39,14 @@ const EMBED_URL = config.EMBED_URL;
 const EMBED_MODEL = config.EMBED_MODEL;
 
 
-function validateAgentTag(agentTag, operation) {
+export function validateAgentTag(agentTag, operation) {
   if (!agentTag || !VALID_AGENT_TAGS.includes(agentTag)) {
     throw new Error(`Invalid agent_tag: "${agentTag}". Valid: ${VALID_AGENT_TAGS.join(', ')}`);
   }
-  if (operation === 'memory_write' && SERVER_AGENT_TAG && agentTag !== SERVER_AGENT_TAG) {
-    throw new Error(`Forbidden: cannot use agent_tag "${agentTag}" — server configured as "${SERVER_AGENT_TAG}"`);
+  // Write-like operations must match SERVER_AGENT_TAG; read-only operations (e.g. memory_query) do not.
+  const WRITE_LIKE_OPS = new Set(['memory_write', 'memory_write_event']);
+  if (WRITE_LIKE_OPS.has(operation) && SERVER_AGENT_TAG && agentTag !== SERVER_AGENT_TAG) {
+    throw new Error(`Forbidden: cannot use agent_tag "${agentTag}" for ${operation} — server configured as "${SERVER_AGENT_TAG}"`);
   }
 }
 
@@ -464,6 +468,28 @@ server.setRequestHandler(ListToolsRequestSchema, () => {
         },
       },
       {
+        name: 'memory_write_event',
+        description: 'Write a raw event record to the memories table (MVP-1 memory hierarchy)',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            agent_tag: { type: 'string', description: 'Agent tag (opencode, hermes, openclaw, george, codex)' },
+            session_id: { type: 'string', description: 'Session identifier this event belongs to' },
+            source_kind: { type: 'string', description: 'Kind of source (e.g. chat, tool, hook, imported) — free string' },
+            content: { type: 'string', description: 'Raw event content text' },
+            source_ref: { type: 'string', description: 'Optional reference string (e.g. file path, message id)' },
+            topic_key: { type: 'string', description: 'Optional topic tag' },
+            occurred_at: { type: 'string', description: 'Optional ISO date string for when the event occurred' },
+            metadata: {
+              type: 'object',
+              description: 'Optional plain object with additional event metadata',
+              additionalProperties: true,
+            },
+          },
+          required: ['agent_tag', 'session_id', 'source_kind', 'content'],
+        },
+      },
+      {
         name: 'memory_query',
         description: 'Query memories using semantic, keyword, hybrid, or causal search',
         inputSchema: {
@@ -641,6 +667,26 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       return { content: [{ type: 'text', text: `Memory saved to ${filepath}, DB id: ${memoryId}` }] };
+    }
+
+    if (name === 'memory_write_event') {
+      const { agent_tag, session_id, source_kind, content, source_ref, topic_key, occurred_at, metadata } = args;
+
+      validateAgentTag(agent_tag, 'memory_write_event');
+
+      const memoryId = await writeEvent({
+        store: db,
+        agent_tag,
+        session_id,
+        source_kind,
+        content,
+        source_ref,
+        topic_key,
+        occurred_at,
+        metadata,
+      });
+
+      return { content: [{ type: 'text', text: `Event saved, DB id: ${memoryId}` }] };
     }
 
     if (name === 'memory_query') {
@@ -1226,4 +1272,9 @@ async function main() {
   console.error('Agent Cortex MCP server running');
 }
 
-main().catch(console.error);
+// ESM main-guard: only auto-start when run as the entrypoint (`node src/server.js`).
+// This lets tests import server.js without triggering an MCP server on stdio.
+const isMainModule = process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1]);
+if (isMainModule) {
+  main().catch(console.error);
+}
