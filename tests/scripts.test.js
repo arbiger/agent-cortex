@@ -37,7 +37,7 @@ describe('scripts', () => {
         it('contains safety markers', () => {
             const content = fs.readFileSync(script, 'utf8');
             assert.ok(content.includes('set -e'), 'missing set -e');
-            assert.ok(content.includes('pg_dump') || content.includes('PG_DUMP'), 'missing pg_dump reference');
+            assert.ok(content.includes('sqlite3') && content.includes('.backup'), 'missing sqlite3 .backup command');
         });
 
         it('shows usage when run with --help', () => {
